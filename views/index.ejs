@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Google Auth App</title>
+</head>
+
+<body>
+    <% if (user) { %>
+        <h1>Hello, <%= user.displayName %>!</h1>
+        <p>JWT Token: <%= user %>
+        </p>
+        <a href="/logout">Logout</a>
+        <% } else { %>
+            <h1>Welcome!</h1>
+            <a href="/auth/google">Login with Google</a>
+            <% } %>
+</body>
+
+</html>
