@@ -7,8 +7,7 @@
 
 <body>
     <% if (user) { %>
-        <h1>Hello, <%= user.displayName %>!</h1>
-        <p>JWT Token: <%= user %>
+        <p>User Info: <%= user %>
         </p>
         <a href="/logout">Logout</a>
         <% } else { %>

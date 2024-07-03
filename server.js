@@ -1,74 +1,75 @@
 const express = require('express');
-const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const axios = require('axios');
 const session = require('express-session');
 const jwt = require('jsonwebtoken');
-const dotenv = require('dotenv');
+require('dotenv').config();
 
-dotenv.config();
 const app = express();
 
 app.set('view engine', 'ejs');
 
-// Configure session middleware
 app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: true
 }));
 
-// Initialize Passport
-app.use(passport.initialize());
-app.use(passport.session());
-
-// Passport session setup
-passport.serializeUser((user, done) => {
-    done(null, user);
-});
-
-passport.deserializeUser((obj, done) => {
-    done(null, obj);
-});
-
-// Use the GoogleStrategy within Passport
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "http://localhost:3000/auth/google/callback"
-},
-    (accessToken, refreshToken, profile, done) => {
-        // Create JWT token
-        const token = jwt.sign(profile._json, process.env.SESSION_SECRET, { expiresIn: '1h' });
-        profile.jwt = token;
-        return done(null, profile);
-    }));
+app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.get('/', (req, res) => {
-    res.render('index', { user: JSON.stringify(req.user) });
+    const userInfo = JSON.stringify(req.session.user);
+    res.render('index', { user: userInfo });
 });
 
 app.get('/login', (req, res) => {
     res.render('login');
 });
 
-app.get('/auth/google',
-    passport.authenticate('google', { scope: ['https://www.googleapis.com/auth/plus.login'] })
-);
+app.get('/auth/google', (req, res) => {
+    const redirectUri = 'http://localhost:3000/auth/google/callback';
+    const scope = 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${scope}`;
+    res.redirect(authUrl);
+});
 
-app.get('/auth/google/callback',
-    passport.authenticate('google', { failureRedirect: '/login' }),
-    (req, res) => {
-        // Successful authentication, redirect home.
+app.get('/auth/google/callback', async (req, res) => {
+    const code = req.query.code;
+    const redirectUri = 'http://localhost:3000/auth/google/callback';
+
+    try {
+        const response = await axios.post('https://oauth2.googleapis.com/token', {
+            code,
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: redirectUri,
+            grant_type: 'authorization_code'
+        });
+
+        const { access_token } = response.data;
+
+        const userInfoResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${access_token}` }
+        });
+
+        const profile = userInfoResponse.data;
+
+        // Create JWT token
+        const token = jwt.sign(profile, process.env.SESSION_SECRET, { expiresIn: '1h' });
+
+        // Store user information in session
+        req.session.user = { profile, token };
+
         res.redirect('/');
+    } catch (error) {
+        console.error('Error during authentication', error);
+        res.redirect('/login');
     }
-);
+});
 
 app.get('/logout', (req, res) => {
-    req.logout(function (err) {
-        if (err) { return next(err); }
-        res.redirect('/');
-    });
+    req.session.destroy();
+    res.redirect('/');
 });
 
 const PORT = process.env.PORT || 3000;
