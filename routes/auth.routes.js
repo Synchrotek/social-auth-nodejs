@@ -1,51 +1,61 @@
 const express = require('express');
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
 const router = express.Router();
 
-const CLIENT_ID = 'YOUR_CLIENT_ID';
-const CLIENT_SECRET = 'YOUR_CLIENT_SECRET';
-const REDIRECT_URI = '<http://localhost:3000/auth/google/callback>';
-
-// Initiates the Google Login flow
-router.get('/auth/google', (req, res) => {
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=profile email`;
-    res.redirect(url);
+router.get('/', (req, res) => {
+    const userInfo = JSON.stringify(req.session.user);
+    res.render('index', { user: userInfo });
 });
 
-// Callback URL for handling the Google Login response
+router.get('/login', (req, res) => {
+    res.render('login');
+});
+
+router.get('/auth/google', (req, res) => {
+    const redirectUri = 'http://localhost:3000/auth/google/callback';
+    const scope = 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${scope}`;
+    res.redirect(authUrl);
+});
+
 router.get('/auth/google/callback', async (req, res) => {
-    const { code } = req.query;
+    const code = req.query.code;
+    const redirectUri = 'http://localhost:3000/auth/google/callback';
 
     try {
-        // Exchange authorization code for access token
-        const { data } = await axios.post('<https://oauth2.googleapis.com/token>', {
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
+        const response = await axios.post('https://oauth2.googleapis.com/token', {
             code,
-            redirect_uri: REDIRECT_URI,
-            grant_type: 'authorization_code',
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: redirectUri,
+            grant_type: 'authorization_code'
         });
 
-        const { access_token, id_token } = data;
+        const { access_token } = response.data;
 
-        // Use access_token or id_token to fetch user profile
-        const { data: profile } = await axios.get('<https://www.googleapis.com/oauth2/v1/userinfo>', {
-            headers: { Authorization: `Bearer ${access_token}` },
+        const userInfoResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${access_token}` }
         });
 
-        // Code to handle user authentication and retrieval using the profile data
+        const profile = userInfoResponse.data;
+
+        // Create JWT token
+        const token = jwt.sign(profile, process.env.SESSION_SECRET, { expiresIn: '1h' });
+
+        // Store user information in session
+        req.session.user = { profile, token };
 
         res.redirect('/');
     } catch (error) {
-        console.error('Error:', error.response.data.error);
+        console.error('Error during authentication', error);
         res.redirect('/login');
     }
 });
 
-// Logout route
 router.get('/logout', (req, res) => {
-    // Code to handle user logout
-    res.redirect('/login');
+    req.session.destroy();
+    res.redirect('/');
 });
 
 module.exports = router;
